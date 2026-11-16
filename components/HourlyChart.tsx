@@ -1,15 +1,9 @@
-
 "use client";
 
+import { useState } from "react";
 import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
+  ResponsiveContainer, BarChart, Bar,
+  XAxis, YAxis, CartesianGrid, Tooltip,
 } from "recharts";
 
 type HourlyMetric = {
@@ -19,83 +13,71 @@ type HourlyMetric = {
   ctr_percent: number;
 };
 
-export default function HourlyChart({
-  data,
-}: {
-  data: HourlyMetric[];
-}) {
+export default function HourlyChart({ data }: { data: HourlyMetric[] }) {
+  const [metric, setMetric] = useState<"impressions" | "clicks">("impressions");
+  const label = metric === "impressions" ? "Ad views" : "Clicks";
+
   const chartData = data.map((row) => ({
+    ...row,
     hour: `${String(row.event_hour).padStart(2, "0")}:00`,
-    impressions: Number(row.impressions),
-    clicks: Number(row.clicks),
-    ctr: Number(row.ctr_percent),
   }));
 
   return (
-    <div className="mt-8 rounded-xl border border-slate-800 bg-slate-900 p-6">
-      <h2 className="text-xl font-semibold">
-        Hourly Campaign Performance
-      </h2>
+    <section className="rounded-2xl border border-slate-200 bg-white p-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">
+            Activity by hour
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            When ad views and clicks were recorded during the day.
+          </p>
+        </div>
 
-      <p className="mb-6 mt-2 text-sm text-slate-400">
-        Impressions and clicks across 24 hours
-      </p>
+        <div className="flex gap-1 rounded-lg bg-slate-100 p-1"
+          role="group" aria-label="Hourly measurement">
+          {(["impressions", "clicks"] as const).map((key) => (
+            <button key={key} type="button"
+              aria-pressed={metric === key}
+              onClick={() => setMetric(key)}
+              className={`rounded-md px-3 py-2 text-sm ${
+                metric === key
+                  ? "bg-white font-semibold text-blue-700 shadow-sm"
+                  : "text-slate-600"
+              }`}>
+              {key === "impressions" ? "Ad views" : "Clicks"}
+            </button>
+          ))}
+        </div>
+      </div>
 
-      <div className="h-80 w-full">
+      <div className="mt-6 h-72 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={chartData}>
-            <CartesianGrid stroke="#334155" strokeDasharray="3 3" />
-
-            <XAxis
-              dataKey="hour"
-              stroke="#94a3b8"
-              tick={{ fontSize: 11 }}
-              interval={2}
-            />
-
-            <YAxis
-              yAxisId="left"
-              stroke="#94a3b8"
-              tickFormatter={(v) => v.toLocaleString()}
-            />
-
-            <YAxis
-              yAxisId="right"
-              orientation="right"
-              stroke="#94a3b8"
-            />
-
-            <Tooltip
-              contentStyle={{
-                backgroundColor: "#0f172a",
-                border: "1px solid #334155",
-                borderRadius: 8,
-              }}
-            />
-
-            <Legend />
-
-            <Line
-              yAxisId="left"
-              type="monotone"
-              dataKey="impressions"
-              stroke="#22d3ee"
-              strokeWidth={2}
-              dot={false}
-              name="Impressions"
-            />
-
-            <Line
-              yAxisId="right"
-              type="monotone"
-              dataKey="clicks"
-              stroke="#a78bfa"
-              strokeWidth={2}
-              name="Clicks"
-            />
-          </LineChart>
+          <BarChart data={chartData}>
+            <CartesianGrid vertical={false} stroke="#e2e8f0" />
+            <XAxis dataKey="hour" interval={2}
+              tick={{ fill: "#64748b", fontSize: 11 }} />
+            <YAxis tickFormatter={(value: number) =>
+              new Intl.NumberFormat("en-US", {
+                notation: "compact",
+              }).format(value)}
+              tick={{ fill: "#64748b", fontSize: 12 }} />
+            <Tooltip contentStyle={{
+              backgroundColor: "#ffffff",
+              border: "1px solid #dbe3ed",
+              borderRadius: 10,
+              color: "#172033",
+            }} />
+            <Bar dataKey={metric} name={label}
+              fill={metric === "impressions" ? "#2563eb" : "#7c3aed"}
+              radius={[3, 3, 0, 0]} />
+          </BarChart>
         </ResponsiveContainer>
       </div>
-    </div>
+
+      <p className="mt-3 text-xs text-slate-500">
+        Hours follow the source records; timezone is unconfirmed.
+      </p>
+    </section>
   );
 }

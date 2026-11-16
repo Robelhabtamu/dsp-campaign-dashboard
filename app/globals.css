@@ -24,3 +24,78 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+/* Light dashboard theme */
+:root {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+}
+
+body {
+  background: #f8fafc;
+  color: #0f172a;
+  font-family: var(--font-geist-sans), Arial, sans-serif;
+}
+
+.bg-slate-950 {
+  background-color: #f8fafc;
+}
+
+.bg-slate-900 {
+  background-color: #ffffff;
+}
+
+.text-white,
+.text-slate-100,
+.text-slate-200 {
+  color: #0f172a;
+}
+
+.text-slate-300,
+.text-slate-400 {
+  color: #475569;
+}
+
+.text-slate-500 {
+  color: #64748b;
+}
+
+.border-slate-800,
+.border-slate-700 {
+  border-color: #e2e8f0;
+}
+
+.text-cyan-200,
+.text-cyan-300,
+.text-cyan-400 {
+  color: #0369a1;
+}
+
+.hover\:bg-slate-800:hover {
+  background-color: #eff6ff;
+}
+
+/* Preserve white text on colored action buttons. */
+.bg-blue-600,
+.bg-blue-700,
+.hover\:bg-blue-700:hover {
+  color: #ffffff;
+}
+
+/* Existing chart tooltips and axes. */
+.recharts-default-tooltip {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+.recharts-tooltip-label {
+  color: #0f172a !important;
+}
+
+.recharts-cartesian-axis-tick-value {
+  fill: #475569;
+}
+
+.recharts-cartesian-grid line {
+  stroke: #e2e8f0;
+}

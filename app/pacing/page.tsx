@@ -1,221 +1,202 @@
-import Link from "next/link";
 import { Suspense } from "react";
-import sql from "@/lib/db";
+import { dailyRows } from "@/lib/data";
+import { days, filters, fmt, ids, pacing, type Params } from "@/lib/metrics";
+import Filters from "@/components/Filters";
+import { Cards } from "@/components/MetricsUI";
+import SpendingChart from "@/components/SpendingChart";
 
-type Params = Promise<Record<string, string | string[] | undefined>>;
-
-function number(value: unknown, digits = 2) {
-  if (value === null || value === undefined) return "—";
-  return Number(value).toLocaleString("en-US", {
-    maximumFractionDigits: digits,
-  });
-}
-
-function dayNumber(value: string) {
-  return Date.parse(`${value}T00:00:00Z`) / 86_400_000;
-}
-
-async function Pacing({ searchParams }: { searchParams: Params }) {
+async function Pacing({ searchParams }: { searchParams: Promise<Params> }) {
   const params = await searchParams;
-
-  const rows = await sql`
-    SELECT event_date::text AS date, advertiser_id, recorded_cost,
-           unusable_paying_price_rows
-    FROM public.daily_campaign_metrics
-    ORDER BY event_date, advertiser_id
-  `;
-
-  if (!rows.length) return <p>No daily metrics available.</p>;
-
-  const dates = [...new Set(rows.map((row) => String(row.date)))].sort();
-  const campaigns = [
-    ...new Set(rows.map((row) => String(row.advertiser_id))),
-  ].sort();
-
-  function text(key: string, fallback: string) {
-    return typeof params[key] === "string" ? params[key] : fallback;
-  }
-
-  const requestedCampaign = text("campaign", "all");
-  const campaign = campaigns.includes(requestedCampaign)
-    ? requestedCampaign
-    : "all";
-
-  const requestedStart = text("start", dates[0]);
-  const requestedEnd = text("end", dates[dates.length - 1]);
-  const requestedAsOf = text("asof", dates[dates.length - 1]);
-
-  const start = dates.includes(requestedStart) ? requestedStart : dates[0];
-  const end = dates.includes(requestedEnd)
-    ? requestedEnd
-    : dates[dates.length - 1];
-  const asof = dates.includes(requestedAsOf)
-    ? requestedAsOf
-    : dates[dates.length - 1];
-
-  const budgetText = text("budget", "");
-  const budget = Number(budgetText);
-  const validBudget = budgetText.trim() !== "" && Number.isFinite(budget) && budget > 0;
-  const validDates = start <= end && asof >= start && asof <= end;
-
-  const periodRows = rows.filter(
-    (row) =>
-      (campaign === "all" || row.advertiser_id === campaign) &&
-      row.date >= start &&
-      row.date <= end,
+  const rows = await dailyRows();
+  if (!rows.length)
+    return (
+      <p className="panel" role="status">
+        No campaign data available. Daily metrics have not been loaded.
+      </p>
+    );
+  const dates = [...new Set(rows.map((r) => r.date))].sort();
+  const f = filters(params, dates);
+  const heading = (
+    <>
+      <h1 className="text-3xl font-bold">Budget &amp; pacing</h1>
+      <Filters route="/pacing" value={f} dates={dates} />
+    </>
   );
-
-  const observed = periodRows.filter((row) => row.date <= asof);
-
-  const actual = observed.reduce(
-    (sum, row) => sum + Number(row.recorded_cost ?? 0),
-    0,
-  );
-
-  const unusable = observed.reduce(
-    (sum, row) => sum + Number(row.unusable_paying_price_rows),
-    0,
-  );
-
-  const missingCost = observed.some((row) => row.recorded_cost === null);
-
-  const totalDays = dayNumber(end) - dayNumber(start) + 1;
-  const elapsedDays = dayNumber(asof) - dayNumber(start) + 1;
-
-  const expected = validBudget && validDates
-    ? budget * elapsedDays / totalDays
-    : null;
-
-  const projection = validDates && elapsedDays > 0
-    ? actual / elapsedDays * totalDays
-    : null;
-
-  // Check complete campaign/date coverage within the observed scenario.
-  const selectedCampaigns = campaign === "all" ? campaigns : [campaign];
-  const observedKeys = new Set(
-    observed.map((row) => `${row.advertiser_id}|${row.date}`),
-  );
-  const expectedRows = validDates ? elapsedDays * selectedCampaigns.length : 0;
-  const complete = validDates && observedKeys.size === expectedRows;
-
-  const usable = complete && !missingCost && unusable === 0;
-  const showScenario = usable && validBudget && expected !== null;
-
-  const inputClass =
-    "mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 p-3";
-
+  if (f.error) return heading;
+  const campaigns = f.campaign === "all" ? ids : [f.campaign];
+  const p = pacing(rows, campaigns, f.from, f.to);
+  const chart = days(p.start, f.to).map((date) => {
+    const point = pacing(rows, campaigns, p.start, date);
+    return { date, actual: point.cumulative, planned: point.planned };
+  });
   return (
-    <div className="mx-auto max-w-6xl">
-      <nav className="mb-8 flex gap-6 text-cyan-300">
-        <Link href="/">Performance</Link>
-        <Link href="/pacing" aria-current="page">Pacing</Link>
-      </nav>
-
-      <h1 className="text-3xl font-bold">Budget Scenario Pacing</h1>
-      <p className="mt-3 text-slate-400">
-        Historical recorded cost against a hypothetical, evenly distributed
-        budget. Values use scaled dataset units. This is not a live budget.
+    <>
+      {heading}
+      <p className="panel mb-6 border-amber-200 bg-amber-50 text-sm text-amber-900">
+        <strong>DEMO budget assumption:</strong> 250,000 scaled dataset units
+        per campaign for June 6–12, 2013. Even daily allocation. Actual budgets
+        are not provided.
       </p>
-
-      <form method="get" action="/pacing"
-        className="mt-8 grid gap-4 rounded-xl bg-slate-900 p-6 sm:grid-cols-3">
-        <label>
-          Campaign
-          <select name="campaign" defaultValue={campaign} className={inputClass}>
-            <option value="all">All campaigns — combined budget</option>
-            {campaigns.map((id) => <option key={id}>{id}</option>)}
-          </select>
-        </label>
-
-        <label>
-          Start date
-          <select name="start" defaultValue={start} className={inputClass}>
-            {dates.map((date) => <option key={date}>{date}</option>)}
-          </select>
-        </label>
-
-        <label>
-          End date
-          <select name="end" defaultValue={end} className={inputClass}>
-            {dates.map((date) => <option key={date}>{date}</option>)}
-          </select>
-        </label>
-
-        <label>
-          As of end of day
-          <select name="asof" defaultValue={asof} className={inputClass}>
-            {dates.map((date) => <option key={date}>{date}</option>)}
-          </select>
-        </label>
-
-        <label>
-          Scenario budget — scaled units
-          <input name="budget" type="number" min="0.001" step="any"
-            defaultValue={budgetText} required className={inputClass} />
-        </label>
-
-        <button className="self-end rounded-lg bg-cyan-400 p-3 font-semibold text-slate-950">
-          Calculate scenario
-        </button>
-      </form>
-
-      {!validDates && (
-        <p role="alert" className="mt-5 text-amber-300">
-          Select a start date no later than the end date, with the as-of date
-          inside that period.
-        </p>
-      )}
-
-      {validDates && !usable && (
-        <p role="alert" className="mt-5 text-amber-300">
-          The selected period has missing coverage or unusable cost records.
-          Pacing calculations are withheld.
-        </p>
-      )}
-
-      {!validBudget && (
-        <p className="mt-5 text-slate-400">
-          Enter a positive scenario budget to calculate pacing.
-        </p>
-      )}
-
-      {showScenario && (
-        <>
-          <section className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              ["Recorded cost to date", number(actual, 3)],
-              ["Expected cost to date", number(expected, 3)],
-              ["Actual / expected", `${number(100 * actual / expected)}%`],
-              ["Projected period cost", number(projection, 3)],
-            ].map(([label, value]) => (
-              <div key={label} className="rounded-xl bg-slate-900 p-6">
-                <p className="text-sm text-slate-400">{label}</p>
-                <p className="mt-3 text-2xl font-bold">{value}</p>
-              </div>
-            ))}
-          </section>
-
-          <p className="mt-5 text-slate-300">
-            {elapsedDays} of {totalDays} days included. Recorded cost is{" "}
-            {actual > expected ? "above" : actual < expected ? "below" : "equal to"}{" "}
-            the scenario’s uniform spending target.
-          </p>
-        </>
-      )}
-
-      <p className="mt-6 text-sm text-slate-400">
-        Projection assumes the observed average daily cost continues.
-        It is a simple scenario, not a forecast model. As-of dates include
-        the complete recorded day; intraday replay is not implemented here.
+      <p className="mb-5 text-sm text-slate-600">
+        Selected range: {f.from} to {f.to} (inclusive). Cumulative values always
+        start June 6.
       </p>
-    </div>
+      {(p.cumulative === null || p.range === null) && (
+        <p role="status" className="panel mb-5 text-amber-800">
+          Required campaign-day coverage or usable cost is missing. Affected
+          spending totals, pacing conclusions, and final spending estimates are
+          unavailable.
+        </p>
+      )}
+      <Cards
+        items={[
+          {
+            label: "Full campaign DEMO budget",
+            value: fmt(p.budget),
+            definition: "Assumed budget of 250,000 scaled units per selected campaign for June 6–12.",
+          },
+          {
+            label: "Spending in selected range",
+            value: fmt(p.range, 3),
+            definition: `Recorded spending from ${f.from} through ${f.to}, in scaled units.`,
+          },
+          {
+            label: "Cumulative spending",
+            value: fmt(p.cumulative, 3),
+            definition: `Total spending from June 6 through ${f.to}, in scaled units.`,
+          },
+          {
+            label:
+              p.remaining !== null && p.remaining < 0
+                ? "Amount over DEMO budget"
+                : "Remaining full campaign budget",
+            value: fmt(p.remaining === null ? null : Math.abs(p.remaining), 3),
+            definition:
+              "How much of the DEMO budget is left, or how far spending has exceeded it. Scaled units.",
+          },
+          {
+            label: "Expected cumulative spending",
+            value: fmt(p.planned, 3),
+            definition:
+              "Planned spending by the selected end date if the DEMO budget is spread evenly. Scaled units.",
+          },
+          {
+            label:
+              p.difference === null
+                ? "Difference from spending plan"
+                : p.difference > 0
+                  ? "Ahead of spending plan"
+                  : p.difference < 0
+                    ? "Behind spending plan"
+                    : "On spending plan",
+            value: fmt(
+              p.difference === null ? null : Math.abs(p.difference),
+              3,
+            ),
+            definition:
+              "How far spending is ahead of or behind the DEMO plan. Scaled units.",
+          },
+          {
+            label: "DEMO budget used",
+            value: p.used === null ? "Unavailable" : `${fmt(p.used, 2)}%`,
+            definition:
+              "Share of the full DEMO budget spent through the selected end date.",
+          },
+          {
+            label: p.atEnd
+              ? "Actual final spending"
+              : "Estimated final spending",
+            value: fmt(p.final, 3),
+            definition: p.atEnd
+              ? "Actual cumulative cost at campaign end. Scaled units."
+              : "Estimated total if the spending pace since June 6 continues to campaign end. Scaled units.",
+          },
+        ]}
+      />
+      {p.difference !== null && (
+        <p className="mt-5 text-sm text-slate-600">
+          {p.difference > 0
+            ? "Spending faster than the DEMO plan."
+            : p.difference < 0
+              ? "Spending slower than the DEMO plan."
+              : "Spending matches the DEMO plan."}{" "}
+          This describes spending pace, not campaign success.
+        </p>
+      )}
+      <SpendingChart data={chart} />
+      {campaigns.length > 1 && (
+        <section className="panel mt-6 overflow-x-auto">
+          <h2 className="mb-4 text-xl font-semibold">
+            Campaign budget summary
+          </h2>
+          <table>
+            <caption className="mb-3 text-left text-sm text-slate-500">
+              All amounts in scaled dataset units. Cumulative values: June 6
+              through {f.to}.
+            </caption>
+            <thead>
+              <tr>
+                {[
+                  "Campaign",
+                  "DEMO budget",
+                  "Range spending",
+                  "Cumulative spending",
+                  "Remaining / over budget",
+                  "Planned cumulative",
+                  "Ahead / behind plan",
+                  "Budget used (%)",
+                  p.atEnd ? "Actual final" : "Estimated final",
+                ].map((h) => (
+                  <th scope="col" key={h}>
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {campaigns.map((id) => {
+                const s = pacing(rows, [id], f.from, f.to);
+                return (
+                  <tr key={id}>
+                    <th scope="row">{id}</th>
+                    <td>{fmt(s.budget)}</td>
+                    <td>{fmt(s.range, 3)}</td>
+                    <td>{fmt(s.cumulative, 3)}</td>
+                    <td>
+                      {s.remaining === null
+                        ? "Unavailable"
+                        : `${fmt(Math.abs(s.remaining), 3)} ${s.remaining < 0 ? "over" : "remaining"}`}
+                    </td>
+                    <td>{fmt(s.planned, 3)}</td>
+                    <td>
+                      {s.difference === null
+                        ? "Unavailable"
+                        : `${fmt(Math.abs(s.difference), 3)} ${s.difference >= 0 ? "ahead" : "behind"}`}
+                    </td>
+                    <td>{fmt(s.used, 2)}</td>
+                    <td>{fmt(s.final, 3)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </section>
+      )}
+      <p className="mt-6 text-sm text-slate-600">
+        Profitability is unavailable because revenue is not provided.
+        Conversions are events, not sales. Remaining budget is not profit.
+      </p>
+    </>
   );
 }
-
-export default function Page({ searchParams }: { searchParams: Params }) {
+export default function Page({
+  searchParams,
+}: {
+  searchParams: Promise<Params>;
+}) {
   return (
-    <main className="min-h-screen bg-slate-950 p-8 text-white">
-      <Suspense fallback={<p>Loading pacing scenario...</p>}>
+    <main className="dashboard">
+      <Suspense fallback={<p role="status">Loading budget pacing…</p>}>
         <Pacing searchParams={searchParams} />
       </Suspense>
     </main>

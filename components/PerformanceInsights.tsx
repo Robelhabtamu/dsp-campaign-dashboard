@@ -1,180 +1,200 @@
 "use client";
-
-import type { ReactNode } from "react";
 import {
-  ResponsiveContainer, LineChart, BarChart, Line, Bar,
-  XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ComposedChart,
+  Line,
+  Legend,
 } from "recharts";
-
+import { ratio } from "@/lib/metrics";
 type Row = {
   date: string;
   advertiser_id: string;
-  impressions: number;
-  clicks: number;
-  cost: number;
-  unusablePrices: number;
-  missingCost: boolean;
-};
-
-type Group = {
-  label: string;
-  impressions: number;
-  clicks: number;
-  cost: number;
+  impressions: number | null;
+  clicks: number | null;
+  cost: number | null;
   incomplete: boolean;
 };
-
 function group(rows: Row[], key: "date" | "advertiser_id") {
-  const groups = new Map<string, Group>();
-
-  for (const row of rows) {
-    const label = row[key];
-    const item = groups.get(label) ?? {
-      label, impressions: 0, clicks: 0, cost: 0, incomplete: false,
+  return [...new Set(rows.map((r) => r[key]))].sort().map((label) => {
+    const members = rows.filter((r) => r[key] === label);
+    const complete = members.every((r) => !r.incomplete);
+    const impressions = complete
+      ? members.reduce((n, r) => n + (r.impressions ?? 0), 0)
+      : null;
+    const clicks = complete
+      ? members.reduce((n, r) => n + (r.clicks ?? 0), 0)
+      : null;
+    const cost =
+      complete && members.every((r) => r.cost !== null)
+        ? members.reduce((n, r) => n + (r.cost ?? 0), 0)
+        : null;
+    return {
+      label,
+      impressions,
+      cost,
+      rate: ratio(clicks, impressions, 100),
+      cpc: ratio(cost, clicks),
     };
-    item.impressions += row.impressions;
-    item.clicks += row.clicks;
-    item.cost += row.cost;
-    item.incomplete ||= row.missingCost || row.unusablePrices > 0;
-    groups.set(label, item);
-  }
-
-  return [...groups.values()]
-    .sort((a, b) => a.label.localeCompare(b.label))
-    .map((row) => ({
-      ...row,
-      rate: row.impressions ? 100 * row.clicks / row.impressions : null,
-      cpc: !row.incomplete && row.clicks ? row.cost / row.clicks : null,
-    }));
+  });
 }
-
-const tooltipStyle = {
-  backgroundColor: "#ffffff",
-  border: "1px solid #dbe3ed",
-  borderRadius: 10,
-  color: "#172033",
-};
-
-function Panel({
-  title, definition, children,
-}: {
-  title: string;
-  definition: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5">
-      <h3 className="font-semibold text-slate-900">{title}</h3>
-      <p className="mt-1 text-sm text-slate-500">{definition}</p>
-      <div className="mt-6 h-64 w-full">{children}</div>
-    </section>
-  );
-}
-
-const compact = (value: number) =>
-  new Intl.NumberFormat("en-US", {
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(value);
-
 export default function PerformanceInsights({ rows }: { rows: Row[] }) {
-  if (!rows.length) return null;
-
   const daily = group(rows, "date");
   const campaigns = group(rows, "advertiser_id");
-  const showTrends = daily.length > 1;
-  const showComparison = campaigns.length > 1;
-
-  if (!showTrends && !showComparison) return null;
-
+  const charts = [
+    {
+      id: "views",
+      key: "impressions" as const,
+      title: "Daily ad views",
+      unit: "Impression events",
+      color: "#2563eb",
+      data: daily,
+      show: daily.length > 1,
+      dateAxis: true,
+    },
+    {
+      id: "daily-rate",
+      key: "rate" as const,
+      title: "Daily click rate",
+      unit: "Clicks for every 100 ad views",
+      color: "#059669",
+      data: daily,
+      show: daily.length > 1,
+      dateAxis: true,
+    },
+    {
+      id: "campaign-rate",
+      key: "rate" as const,
+      title: "Click rate by campaign",
+      unit: "Clicks for every 100 ad views over the selected range",
+      color: "#7c3aed",
+      data: campaigns,
+      show: campaigns.length > 1,
+      dateAxis: false,
+    },
+  ].filter((chart) => chart.show);
+  if (!charts.length) return null;
   return (
-    <section className="mt-8">
-      <h2 className="mb-4 text-xl font-semibold text-slate-900">
-        {showTrends ? "Daily performance" : "Campaign comparison"}
-      </h2>
-
+    <section className="mt-6 space-y-5">
+      {daily.length > 1 && (
+        <section className="panel">
+          <h2 className="text-xl font-semibold">
+            Daily spending &amp; cost per click
+          </h2>
+          <p className="mt-2 text-sm text-slate-500">
+            Total spending and average spending per click, in scaled dataset
+            units. Spending uses the left axis; cost per click uses the right
+            axis. Unavailable values leave gaps.
+          </p>
+          <div className="mt-5 h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart
+                data={daily}
+                margin={{ top: 15, right: 0, bottom: 5, left: 0 }}
+              >
+                <CartesianGrid vertical={false} stroke="#e2e8f0" />
+                <XAxis
+                  dataKey="label"
+                  tickFormatter={(v) => String(v).slice(5)}
+                />
+                <YAxis
+                  yAxisId="spending"
+                  width={75}
+                  tickFormatter={(v) =>
+                    Number(v).toLocaleString("en-US", { notation: "compact" })
+                  }
+                />
+                <YAxis
+                  yAxisId="cpc"
+                  orientation="right"
+                  width={75}
+                  tickFormatter={(v) =>
+                    Number(v).toLocaleString("en-US", {
+                      maximumFractionDigits: 2,
+                    })
+                  }
+                />
+                <Tooltip
+                  formatter={(value, name) => [
+                    `${Number(value).toLocaleString("en-US", { maximumFractionDigits: 3 })} scaled units`,
+                    name,
+                  ]}
+                />
+                <Legend />
+                <Bar
+                  yAxisId="spending"
+                  dataKey="cost"
+                  name="Spending (left axis)"
+                  fill="#2563eb"
+                  radius={[4, 4, 0, 0]}
+                />
+                <Line
+                  yAxisId="cpc"
+                  dataKey="cpc"
+                  name="Cost per click (right axis)"
+                  stroke="#d97706"
+                  strokeWidth={3}
+                  dot={{ r: 4 }}
+                  connectNulls={false}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
+      )}
       <div className="grid gap-5 lg:grid-cols-2">
-        {showTrends && (
-<Panel title="Ad views by day"
-          definition="How often ads were displayed each day.">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={daily}>
-              <CartesianGrid vertical={false} stroke="#e2e8f0" />
-              <XAxis dataKey="label" tickFormatter={(v: string) => v.slice(5)}
-                tick={{ fill: "#64748b", fontSize: 12 }} />
-              <YAxis tickFormatter={compact}
-                tick={{ fill: "#64748b", fontSize: 12 }} />
-              <Tooltip contentStyle={tooltipStyle} />
-              <Bar dataKey="impressions" name="Ad views"
-                fill="#2563eb" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </Panel>
-)}
-
-        {showTrends && (
-<Panel title="Click rate by day"
-          definition="Recorded clicks for every 100 ad views.">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={daily}>
-              <CartesianGrid vertical={false} stroke="#e2e8f0" />
-              <XAxis dataKey="label" tickFormatter={(v: string) => v.slice(5)}
-                tick={{ fill: "#64748b", fontSize: 12 }} />
-              <YAxis tickFormatter={(v: number) => `${v.toFixed(3)}%`}
-                width={75} tick={{ fill: "#64748b", fontSize: 12 }} />
-              <Tooltip contentStyle={tooltipStyle}
-                formatter={(value) => [
-                  `${Number(value).toFixed(4)}%`, "Click rate",
-                ]} />
-              <Line dataKey="rate" name="Click rate"
-                stroke="#059669" strokeWidth={2.5}
-                dot={{ r: 4 }} connectNulls={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        </Panel>
-)}
-
-        {showTrends && (
-<Panel title="Cost per click by day"
-          definition="Average recorded cost per click, in dataset units.">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={daily}>
-              <CartesianGrid vertical={false} stroke="#e2e8f0" />
-              <XAxis dataKey="label" tickFormatter={(v: string) => v.slice(5)}
-                tick={{ fill: "#64748b", fontSize: 12 }} />
-              <YAxis tick={{ fill: "#64748b", fontSize: 12 }} />
-              <Tooltip contentStyle={tooltipStyle}
-                formatter={(value) => [
-                  Number(value).toFixed(3), "Cost per click",
-                ]} />
-              <Line dataKey="cpc" name="Cost per click"
-                stroke="#d97706" strokeWidth={2.5}
-                dot={{ r: 4 }} connectNulls={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        </Panel>
-)}
-
-        {showComparison && (
-<Panel title="Click rate by campaign"
-          definition="Click rate for each campaign in the selected period.">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={campaigns}>
-              <CartesianGrid vertical={false} stroke="#e2e8f0" />
-              <XAxis dataKey="label"
-                tick={{ fill: "#64748b", fontSize: 12 }} />
-              <YAxis tickFormatter={(v: number) => `${v.toFixed(3)}%`}
-                width={75} tick={{ fill: "#64748b", fontSize: 12 }} />
-              <Tooltip contentStyle={tooltipStyle}
-                formatter={(value) => [
-                  `${Number(value).toFixed(4)}%`, "Click rate",
-                ]} />
-              <Bar dataKey="rate" name="Click rate"
-                fill="#7c3aed" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </Panel>
-)}
+        {charts.map((chart) => (
+          <section className="panel" key={chart.id}>
+            <h2 className="text-xl font-semibold">{chart.title}</h2>
+            <p className="mt-2 text-sm text-slate-500">
+              {chart.unit} · unavailable values leave gaps.
+            </p>
+            <div className="mt-5 h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chart.data}>
+                  <CartesianGrid vertical={false} stroke="#e2e8f0" />
+                  <XAxis
+                    dataKey="label"
+                    tickFormatter={(v) =>
+                      chart.dateAxis ? String(v).slice(5) : String(v)
+                    }
+                  />
+                  <YAxis
+                    width={75}
+                    tickFormatter={(v) =>
+                      chart.key === "rate"
+                        ? `${Number(v).toFixed(3)}%`
+                        : Number(v).toLocaleString("en-US", {
+                            notation: "compact",
+                          })
+                    }
+                  />
+                  <Tooltip
+                    formatter={(v) => [
+                      chart.key === "rate"
+                        ? `${Number(v).toFixed(4)}%`
+                        : Number(v).toLocaleString("en-US", {
+                            maximumFractionDigits: 0,
+                          }),
+                      chart.title,
+                    ]}
+                  />
+                  <Bar
+                    dataKey={chart.key}
+                    name={chart.title}
+                    fill={chart.color}
+                    radius={[4, 4, 0, 0]}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </section>
+        ))}
       </div>
     </section>
   );

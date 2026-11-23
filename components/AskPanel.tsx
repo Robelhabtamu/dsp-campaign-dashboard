@@ -11,7 +11,7 @@ export function AskResult({ result }: { result: AskResponse }) {
   return <section className="mt-6 space-y-4" aria-label="Question result" aria-live="polite">
     {result.demoMode && <p className="panel font-semibold">SYNTHETIC DATA — {result.demoMode === "synthetic_ai" ? "Gemini generation and Cohere judgment against the isolated fixture; not live analytics." : "Scripted planner and judge; no AI provider calls."}</p>}
     {result.status !== "approved" && <div className="panel" role={result.status === "error" ? "alert" : "status"}>
-      <h2 className="text-xl font-semibold">{statusLabels[result.status]}</h2><p className="mt-2">{result.message}</p>
+      <h2 className="text-xl font-semibold">{result.errorCode === "advertiser_required" ? "Which advertiser?" : result.errorCode === "comparison_dates_required" ? "Which dates?" : statusLabels[result.status]}</h2><p className="mt-2">{result.message}</p>
     </div>}
     {result.status === "approved" && result.answer && <article className="panel">
       <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold">Approved answer</h2><span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">Verified against data</span></div>
@@ -94,7 +94,7 @@ export default function AskPanel({ selection, enabled = false, demo }: { selecti
       <textarea id="ask-question" className="mt-3 block min-h-32 w-full rounded-lg border border-slate-300 p-3" maxLength={1000}
         value={question} onChange={(event) => setQuestion(event.target.value)} required
         placeholder="For example: How many click events did advertiser 1458 record?" aria-describedby="ask-help" />
-      <p id="ask-help" className="my-3 text-sm text-slate-600">Up to 1,000 characters. Approved campaign metrics only; revenue, profit, ROI and causal explanations are unavailable. {demo ? "Synthetic fixture only. Scripted mode supports selected-scope event totals; ‘demo withhold’ exercises rejection. Gemini/Cohere mode has a separate bounded paid-run allowance." : "No demo answer will be generated."}</p>
+      <p id="ask-help" className="my-3 text-sm text-slate-600">Up to 1,000 characters. Approved campaign metrics only; revenue, profit, ROI and causal explanations are unavailable. {demo ? "Synthetic fixture only. Scripted mode supports selected-scope event totals; ‘demo withhold’ exercises rejection. Gemini/Cohere mode has a separate bounded paid-run allowance." : "Include an advertiser ID or say all advertisers. For comparisons, include two dates (YYYY-MM-DD)."}</p>
       <button className="action disabled:cursor-not-allowed disabled:opacity-50" type="submit" disabled={!enabled || pending || !question.trim()}>{pending ? "Checking evidence…" : "Ask the Data"}</button>
     </form>
     {result && <AskResult result={result} />}

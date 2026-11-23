@@ -263,3 +263,21 @@ test("row-limit warning remains visible beside the approved answer", () => {
   const html = renderToStaticMarkup(React.createElement(AskResult, { result }));
   assert.ok(html.indexOf("Results may be incomplete") < html.indexOf("View SQL"));
 });
+
+test("ambiguous advertiser shows a safe clarification instead of generic refusal", () => {
+  const result = contract.projectAgentResponse({ status: "unanswerable", answer: null, evidence: [], executed_sql: [], error: { code: "advertiser_required", message: "PRIVATE PROVIDER PROSE" } });
+  assert.equal(result.status, "unanswerable");
+  assert.equal(result.errorCode, "advertiser_required");
+  assert.equal(contract.readAskResponse(result).message, result.message);
+  const html = renderToStaticMarkup(React.createElement(AskResult, { result }));
+  assert.ok(html.includes("Which advertiser?") && html.includes("all advertisers"));
+  assert.ok(!html.includes("PRIVATE"));
+});
+
+test("calculated comparison answer is shown only after approved status", () => {
+  const raw = { ...approved(), answer: { text: "All advertisers: impressions decreased by 15,399 (0.85%)." } };
+  const html = renderToStaticMarkup(React.createElement(AskResult, { result: contract.projectAgentResponse(raw) }));
+  assert.ok(html.includes("decreased by 15,399 (0.85%)"));
+  const withheld = renderToStaticMarkup(React.createElement(AskResult, { result: contract.projectAgentResponse({ ...raw, status: "withheld" }) }));
+  assert.ok(!withheld.includes("15,399"));
+});

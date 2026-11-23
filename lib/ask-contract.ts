@@ -5,6 +5,8 @@ export type AskEvidence = { columns: string[]; rows: Cell[][]; parameters: Cell[
   sql: string | null; source: "synthetic_fixture" | "database" | "unreported"; queryExecuted: boolean | null };
 export type AskProvenance = { generator: "gemini" | "groq" | null; steps: number | null; sqlCalls: number | null; answerAttempts: number | null };
 export const askFailures = {
+  advertiser_required: "Which advertiser do you mean? Add its advertiser ID to your question, or say all advertisers.",
+  comparison_dates_required: "Include two different dates in chronological order. Use YYYY-MM-DD to avoid ambiguity.",
   demo_scope: "Use synthetic advertiser 1458 or 3358 (or all), June 6–8, 2013. Ask about the selected filters, or select a supported example.",
   demo_question: "Scripted mode supports totals for the selected filters only. Use a supported example; change the campaign/date filters instead of requesting another scope in the question.",
   demo_rate_limit: "The synthetic demo allows six questions per minute. Wait one minute, then click Ask again. No answer was generated.",
@@ -49,10 +51,12 @@ export function projectAgentResponse(raw: unknown): AskResponse {
       source: e.source === "synthetic_fixture" || e.source === "database" ? e.source : "unreported",
       queryExecuted: typeof e.query_executed === "boolean" ? e.query_executed : null });
   }
+  const clarificationCode = status === "unanswerable" && object(raw.error) && (raw.error.code === "advertiser_required" || raw.error.code === "comparison_dates_required") ? raw.error.code : null;
   const demoMode = raw.demo_mode === "synthetic_scripted" || raw.demo_mode === "synthetic_ai" ? raw.demo_mode : undefined;
   return { status, answer: status === "approved" ? (raw.answer as { text: string }).text : null,
     ...(demoMode ? { demoMode } : {}),
-    executedSql: raw.executed_sql, evidence, message: demoMode === "synthetic_scripted" && status === "approved" ? "Scripted demo control accepted against real synthetic SQL evidence. No LLM or Cohere was called." : demoMode === "synthetic_scripted" && status === "unanswerable" ? "Scripted mode cannot answer that question. It supports only total clicks, impressions, conversions or recorded cost for the selected filters. Choose an example; CTR, comparisons, revenue and causal questions are not supported." : messages[status], provenance: {
+    ...(clarificationCode ? { errorCode: clarificationCode } : {}),
+    executedSql: raw.executed_sql, evidence, message: clarificationCode ? askFailures[clarificationCode] : demoMode === "synthetic_scripted" && status === "approved" ? "Scripted demo control accepted against real synthetic SQL evidence. No LLM or Cohere was called." : demoMode === "synthetic_scripted" && status === "unanswerable" ? "Scripted mode cannot answer that question. It supports only total clicks, impressions, conversions or recorded cost for the selected filters. Choose an example; CTR, comparisons, revenue and causal questions are not supported." : messages[status], provenance: {
       generator: raw.provider_used === "gemini" || raw.provider_used === "groq" ? raw.provider_used : null,
       steps: boundedCount(raw.steps, 20), sqlCalls: boundedCount(raw.sql_calls, 5), answerAttempts: boundedCount(raw.answer_attempts, 2),
     } };
@@ -63,7 +67,7 @@ export function readAskResponse(raw: unknown): AskResponse {
   if (!object(raw) || !Array.isArray(raw.evidence) || raw.evidence.length > 5) return askError();
   if (raw.status === "error" && typeof raw.errorCode === "string" && Object.hasOwn(askFailures, raw.errorCode)) return askFailure(raw.errorCode as AskErrorCode);
   const provenance = object(raw.provenance) ? raw.provenance : {};
-  return projectAgentResponse({ status: raw.status, answer: { text: raw.answer }, executed_sql: raw.executedSql,
+  return projectAgentResponse({ status: raw.status, error: { code: raw.errorCode }, answer: { text: raw.answer }, executed_sql: raw.executedSql,
     demo_mode: raw.demoMode,
     provider_used: provenance.generator, steps: provenance.steps, sql_calls: provenance.sqlCalls, answer_attempts: provenance.answerAttempts,
     evidence: raw.evidence.map((e) => object(e) ? {

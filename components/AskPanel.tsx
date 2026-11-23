@@ -2,23 +2,30 @@
 
 import { useState, type FormEvent } from "react";
 import { ASK_DISABLED, askError, readAskResponse, type AskResponse } from "@/lib/ask-contract";
+import { answerItems } from "@/lib/ask-presentation";
 import type { Filters } from "@/lib/metrics";
 
 export function AskResult({ result }: { result: AskResponse }) {
+  const items = result.status === "approved" && result.answer ? answerItems(result.answer) : null;
   const statusLabels = { approved: "Approved", withheld: "Withheld", unanswerable: "Unanswerable", error: "Error" };
   return <section className="mt-6 space-y-4" aria-label="Question result" aria-live="polite">
     {result.demoMode && <p className="panel font-semibold">SYNTHETIC DATA — {result.demoMode === "synthetic_ai" ? "Gemini generation and Cohere judgment against the isolated fixture; not live analytics." : "Scripted planner and judge; no AI provider calls."}</p>}
-    <div className="panel" role={result.status === "error" ? "alert" : "status"}>
+    {result.status !== "approved" && <div className="panel" role={result.status === "error" ? "alert" : "status"}>
       <h2 className="text-xl font-semibold">{statusLabels[result.status]}</h2><p className="mt-2">{result.message}</p>
-    </div>
+    </div>}
     {result.status === "approved" && result.answer && <article className="panel">
-      <h2 className="text-xl font-semibold">Approved answer</h2><p className="mt-3 whitespace-pre-wrap">{result.answer}</p>
+      <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold">Approved answer</h2><span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">Verified against data</span></div>
+      {items ? <dl className="mt-4 grid gap-4 sm:grid-cols-2">{items.map((item, i) => <div key={i} className="rounded-xl bg-slate-50 p-4"><dt className="text-sm text-slate-600">{item.label}</dt><dd className="mt-1 break-words text-2xl font-semibold">{item.value}</dd></div>)}</dl> : <p className="mt-3 whitespace-pre-wrap">{result.answer}</p>}
+      {result.evidence.some(e => e.limitReached) && <p className="mt-3 text-sm text-amber-800">The row limit was reached. Results may be incomplete.</p>}
     </article>}
-    {result.executedSql.length > 0 && <section className="panel">
+    {(result.executedSql.length > 0 || result.evidence.length > 0) && <details className="panel">
+      <summary className="cursor-pointer font-semibold">View SQL &amp; supporting evidence</summary>
+      <div className="mt-5 space-y-5">
+    {result.executedSql.length > 0 && <section>
       <h2 className="text-xl font-semibold">Executed SQL</h2>
       {result.executedSql.map((query, i) => <pre key={i} className="mt-3 overflow-x-auto whitespace-pre-wrap text-sm"><code>{query}</code></pre>)}
     </section>}
-    {(result.executedSql.length > 0 || result.evidence.length > 0) && <section className="panel">
+    {(result.executedSql.length > 0 || result.evidence.length > 0) && <section>
       <h2 className="text-xl font-semibold">Evidence provenance</h2>
       <dl className="mt-3 grid gap-3 sm:grid-cols-2">
         {[
@@ -26,11 +33,11 @@ export function AskResult({ result }: { result: AskResponse }) {
           ["Agent steps", result.provenance.steps ?? "Not reported"],
           ["SQL calls", result.provenance.sqlCalls ?? "Not reported"],
           ["Answer attempts", result.provenance.answerAttempts ?? "Not reported"],
-        ].map(([label, value]) => <div key={label}><dt className="text-sm text-slate-500">{label}</dt><dd>{value}</dd></div>)}
+        ].filter(([, value]) => value !== "Not reported").map(([label, value]) => <div key={label}><dt className="text-sm text-slate-500">{label}</dt><dd>{value}</dd></div>)}
       </dl>
-      <p className="mt-3 text-sm text-slate-600">Execution metadata is supplied by the Python agent. Publication timestamps, source freshness, model IDs and durable audit records are not included in this response. SQL evidence is distinct from an approved model interpretation.</p>
+
     </section>}
-    {result.evidence.map((e, i) => <section className="panel overflow-x-auto" key={i}>
+    {result.evidence.map((e, i) => <section className="overflow-x-auto" key={i}>
       <h2 className="text-xl font-semibold">Supporting evidence {i + 1}</h2>
       <p className="mt-3 text-sm text-slate-600">Source: {e.source === "synthetic_fixture" ? "SYNTHETIC FIXTURE — not live observations" : e.source === "database" ? "Database (reported by backend)" : "Not reported"}.
         {" "}SQL execution: {e.queryExecuted === true ? "Reported executed" : e.queryExecuted === false ? "Not executed" : "Not reported"}. Returned rows: {e.rows.length}.</p>
@@ -42,6 +49,8 @@ export function AskResult({ result }: { result: AskResponse }) {
         <tbody>{e.rows.map((row, r) => <tr key={r}>{row.map((value, c) => <td key={c}>{value === null ? "Unavailable (NULL)" : String(value)}</td>)}</tr>)}</tbody>
       </table>}
     </section>)}
+      </div>
+    </details>}
   </section>;
 }
 
@@ -59,7 +68,7 @@ export default function AskPanel({ selection, enabled = false, demo }: { selecti
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question, campaign: selection.campaign, from: selection.from, to: selection.to, ...(demo ? { mode } : {}) }) });
       const raw: unknown = await response.json();
-      // The authenticated server projects the transport shape and Python validates
+      // The server projects the transport shape and Python validates
       // claims. Never render unexpected network objects or driver error strings.
       setResult(readAskResponse(raw));
     } catch { setResult(askError()); }

@@ -1,53 +1,23 @@
-import Link from "next/link";
-import { href, ids, type Filters as Selection } from "@/lib/metrics";
+import DashboardNavigation from "@/components/DashboardNavigation";
+import { ids, type Filters as Selection } from "@/lib/metrics";
 export default function Filters({
   value,
   dates,
   route,
   campaignIds = ids,
+  showNavigation = true,
+  extra,
 }: {
   value: Selection;
   dates: string[];
   route: "/" | "/pacing" | "/auction" | "/changes" | "/ask";
   campaignIds?: string[];
+  showNavigation?: boolean;
+  extra?: import("react").ReactNode;
 }) {
   return (
     <>
-      <nav
-        aria-label="Dashboard navigation"
-        className="my-5 flex flex-wrap gap-5 text-blue-700"
-      >
-        <Link
-          aria-current={route === "/" ? "page" : undefined}
-          href={href("/", value)}
-        >
-          Performance
-        </Link>
-        <Link
-          aria-current={route === "/pacing" ? "page" : undefined}
-          href={href("/pacing", value)}
-        >
-          Budget &amp; pacing
-        </Link>
-        <Link
-          aria-current={route === "/auction" ? "page" : undefined}
-          href={href("/auction", value)}
-        >
-          Auction Analysis
-        </Link>
-        <Link
-          aria-current={route === "/changes" ? "page" : undefined}
-          href={href("/changes", value)}
-        >
-          What Changed
-        </Link>
-        <Link
-          aria-current={route === "/ask" ? "page" : undefined}
-          href={href("/ask", value)}
-        >
-          Ask the Data
-        </Link>
-      </nav>
+      {showNavigation && <DashboardNavigation route={route} value={value} />}
       <form
         key={`${value.campaign}-${value.from}-${value.to}`}
         action={route}
@@ -87,6 +57,7 @@ export default function Filters({
             defaultValue={value.to}
           />
         </label>
+        {extra}
         <button className="action" type="submit">
           Apply filters
         </button>

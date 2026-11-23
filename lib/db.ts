@@ -10,6 +10,8 @@ if (!connectionString) {
 const sql = postgres(connectionString, {
   ssl: "require",
   max: 5,
+  // Avoid named-statement collisions across pooled serverless connections.
+  prepare: false,
 });
 
 export default sql;

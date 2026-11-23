@@ -1,3 +1,8 @@
+> Public-access update: visitor sign-in is no longer required by user decision.
+> See [PUBLIC_ASK.md](../../ai/PUBLIC_ASK.md) for the implemented public API bridge,
+> Python service, configuration and deployment steps. The historical requirements
+> below are superseded for this explicit public mode. Backend readiness still gates submission.
+
 # Ask the Data — Phase 3 interface and disabled integration boundary
 
 > Local development update: an explicitly labeled synthetic-only Python/Next

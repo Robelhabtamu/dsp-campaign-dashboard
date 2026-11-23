@@ -14,7 +14,7 @@ export const askFailures = {
 } as const;
 export type AskErrorCode = keyof typeof askFailures;
 export type AskResponse = { status: AskStatus; answer: string | null; executedSql: string[]; evidence: AskEvidence[]; message: string; provenance: AskProvenance; demoMode?: "synthetic_scripted" | "synthetic_ai"; errorCode?: AskErrorCode };
-export const ASK_DISABLED = "Ask the Data is unavailable until secure sign-in, authorization, rate limiting and the Python service are configured.";
+export const ASK_DISABLED = "Ask the Data is unavailable until the Python question service is configured and ready. No sign-in is required.";
 const messages: Record<AskStatus, string> = {
   approved: "Approved answer, validated against SQL evidence and by the judge.",
   withheld: "The answer was withheld because it could not be validated. Rejected text is not shown.",

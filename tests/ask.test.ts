@@ -7,7 +7,9 @@ import ts from "typescript";
 import React, { type ComponentType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { handleAsk, type AskIntegration } from "../lib/ask-api.ts";
+import * as presentation from "../lib/ask-presentation.ts";
 import * as contract from "../lib/ask-contract.ts";
+import { handlePublicAsk } from "../lib/ask-public.ts";
 import { changesFilters } from "../lib/changes.ts";
 import { href } from "../lib/metrics.ts";
 
@@ -149,7 +151,7 @@ const require = createRequire(import.meta.url);
 const source = readFileSync(new URL("../components/AskPanel.tsx", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
 const exports: Record<string, ComponentType<never>> = {};
-vm.runInNewContext(compiled, { exports, require: (name: string) => name === "@/lib/ask-contract" ? contract : require(name) });
+vm.runInNewContext(compiled, { exports, require: (name: string) => name === "@/lib/ask-contract" ? contract : name === "@/lib/ask-presentation" ? presentation : require(name) });
 const AskResult = exports.AskResult as unknown as ComponentType<{ result: contract.AskResponse }>;
 const AskPanel = exports.default as unknown as ComponentType<{ selection: ReturnType<typeof changesFilters>; enabled: boolean }>;
 
@@ -201,7 +203,7 @@ test("missing provenance is unknown and out-of-bounds metadata is not rendered",
   const projected = contract.projectAgentResponse({ ...approved(), provider_used: "PRIVATE", steps: 99, sql_calls: -1, answer_attempts: "2" });
   assert.deepEqual(projected.provenance, { generator: null, steps: null, sqlCalls: null, answerAttempts: null });
   const html = renderToStaticMarkup(React.createElement(AskResult, { result: projected }));
-  assert.ok(html.includes("Not reported"));
+  assert.ok(!html.includes("Agent steps") && !html.includes("Answer attempts"));
   assert.ok(!html.includes("PRIVATE"));
 });
 
@@ -225,13 +227,13 @@ test("each terminal state is explicit and only approved status shows answer text
   }
 });
 
-test("actual API route stays disabled without authentication or Python adapters", async () => {
+test("actual API route stays unavailable without configured Python service", async () => {
   const routeSource = readFileSync(new URL("../app/api/ask/route.ts", import.meta.url), "utf8");
   const code = ts.transpileModule(routeSource, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
   const routeExports: { POST?: (request: Request) => Promise<Response> } = {};
-  vm.runInNewContext(code, { exports: routeExports, require: (name: string) => {
+  vm.runInNewContext(code, { process: { env: {} }, exports: routeExports, require: (name: string) => {
     if (name === "server-only") return {};
-    if (name === "@/lib/ask-api") return { handleAsk };
+    if (name === "@/lib/ask-public") return { handlePublicAsk, publicConfig: () => null };
     if (name === "@/lib/ask-demo") return { handleDemoAsk: () => { throw new Error("Demo must remain disabled in this test"); } };
     if (name === "@/lib/ask-demo-runtime") return { localDemoConfig: () => null };
     throw new Error("Unexpected dependency in disabled route");
@@ -242,5 +244,22 @@ test("actual API route stays disabled without authentication or Python adapters"
   const body = await response.json();
   assert.equal(body.answer, null);
   assert.deepEqual(body.evidence, []);
-  assert.match(body.message, /secure sign-in/);
+  assert.match(body.message, /Python question service/);
+});
+
+
+test("approved answer leads with formatted values and keeps SQL collapsed", () => {
+  const raw = approved(); raw.answer.text = "sum_clicks = 2610 (evidence 1, row 1)";
+  const html = renderToStaticMarkup(React.createElement(AskResult, { result: contract.projectAgentResponse(raw) }));
+  assert.ok(html.includes("Total clicks") && html.includes("2,610"));
+  assert.ok(!html.includes("sum_clicks = 2610 (evidence"));
+  assert.ok(html.indexOf("Approved answer") < html.indexOf("View SQL"));
+  assert.ok(!html.includes("<details open"));
+});
+
+test("row-limit warning remains visible beside the approved answer", () => {
+  const raw = approved();
+  const result = contract.projectAgentResponse({ ...raw, evidence: [{ ...raw.evidence[0], limit_reached: true }] });
+  const html = renderToStaticMarkup(React.createElement(AskResult, { result }));
+  assert.ok(html.indexOf("Results may be incomplete") < html.indexOf("View SQL"));
 });

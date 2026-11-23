@@ -20,7 +20,7 @@ function adapter(access: { allowed: boolean; raw_access: boolean }, configured =
 test("unauthorized or overprivileged readers cannot reach published data", async () => {
   for (const access of [{ allowed: false, raw_access: false }, { allowed: true, raw_access: true }]) {
     const a = adapter(access); const state = await a.load(changes.changesFilters({}));
-    assert.equal(state.status, "error"); assert.equal(a.calls.length, 1);
+    assert.equal(state.status, "error"); assert.equal(a.calls.length, 2);
   }
 });
 test("unconfigured pathway makes no query and has no synthetic fallback", async () => {
@@ -30,8 +30,8 @@ test("unconfigured pathway makes no query and has no synthetic fallback", async 
 test("authorized reader uses only published view for result data", async () => {
   const a = adapter({ allowed: true, raw_access: false });
   assert.equal((await a.load(changes.changesFilters({}))).status, "empty");
-  assert.ok(a.calls[1].includes("FROM ai_store.published_outputs"));
-  assert.ok(a.calls[1].includes("LIMIT 101"));
+  assert.ok(a.calls[2].includes("FROM ai_store.published_outputs"));
+  assert.ok(a.calls[2].includes("LIMIT 101"));
 });
 
 test("production preview flags never open a fixture file; local errors are sanitized", async () => {

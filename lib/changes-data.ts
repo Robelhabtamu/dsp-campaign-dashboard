@@ -11,9 +11,9 @@ export async function publishedChanges(selection: Filters & { metric?: string; d
   return loadChanges(async () => {
     // Deliberately independent of lib/db.ts and DATABASE_URL. Lazy configuration
     // keeps other routes working before the restricted reader is provisioned.
-    reader ??= postgres(url, { ssl: "require", prepare: false, max: 2, connect_timeout: 10, idle_timeout: 20,
-      connection: { statement_timeout: 10000 } });
+    reader ??= postgres(url, { ssl: "require", prepare: false, max: 2, connect_timeout: 10, idle_timeout: 20 });
     const result = await reader.begin("read only", async (sql) => {
+      await sql`SET LOCAL statement_timeout = '10s'`;
       const [access] = await sql`SELECT
         pg_has_role(current_user, 'ai_dashboard_reader', 'USAGE') AS allowed,
         has_table_privilege(current_user, 'ai_store.explanations', 'SELECT') AS raw_access`;
